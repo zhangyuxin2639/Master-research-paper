@@ -1,0 +1,752 @@
+---
+title: A nonparameteric Bayesian classification technique to predict disease status using
+  genomic data
+author: "Yuxin Zhang"
+geometry: margin=1in
+graphics: true
+output: 
+  pdf_document:
+    fig_caption: yes
+    latex_engine: pdflatex
+    number_sections: true
+    keep_tex: true
+header-includes: 
+- \usepackage{graphicx}
+- \usepackage{float}
+indent: yes
+fontsize: 10pt
+---
+```{r setup, include = FALSE}
+library(knitr)
+knitr::opts_chunk$set(fig.path = 'figures/', fig.pos = 'htb!', echo = TRUE)
+knit_hooks$set(plot = function(x, options)  {
+  hook_plot_tex(x, options)
+})
+```
+```{r ,include = FALSE}
+library(ISLR)
+library(gplots)
+library(cluster)
+library(reshape2)
+library(ggplot2)
+library(DiagrammeR)
+library(foreign)
+library(nnet)
+```
+\begin{center}
+$\textbf{Abstract}$
+\end{center}
+$\newline$
+Predicting the state of disease is one of the most important problems in biostatistics research areas. Regression and classification are used to be the most common methods solving these problems.[1] Our research target, Naive Bayes classification is also a well-known classification technique. However, the disadvantages of a traditional NB classifier will be exposed when the number of features is huge and the assocation between feature and class variable has not be determined because the two main assumptions of a NB classifier are the distributions of features has to be known and no correlation between features. This paper explores a non-parametric Bayes classification framework for predicting and imputing the class variable by training distributions from the given data. We apply this new method to a inflammatory bowel disease data and compare our method with multinomial regression models, another traditional method for classification problems. Our results show that the transformed NB classification method can perform accurate and robust predictions, even higher than traditional methods.
+$\newline$
+$\newline$
+$\newline$
+\large
+$\textbf{1. Introduction}$
+\normalsize
+$\newline$
+$\newline$
+\indent Bayes theorem[2] is widely used in dealing with data problems. The two main applications of Bayes theorem are classification and data imputation. In a classification problem with categorical features, Bayes theorem can be flexibily applied to find the posterior distribution given features' value based on the prior distribution of features and the conditional distribution of each feature at each response variable's class. 
+$\newline$
+\indent There are three main challenges in applying traditional Naive Bayes classification method on a genomic data.[3] One of the challenges is the gene expression data is used to be high-dimensional. Computing the posterior probability requires multiplying the number of (conditional) density equal to the number of features which is very likely to result in a value extremely closes to 0, far beyond the ability of ordinary calculation tools. Secondly, the distribution of gene features is continous in most cases and the value of each data point are distinct which makes it impossible to train a conditional probability density model from data. However, if the correlation between some features exists, the joint density can not be correctly estimated without conditonal distribution unless the independence between features are guaranteed. For the above two problem, dimension reduction is a proposed resolution. The final challenge is the unpredictability of a gene expression data distribution. For high-dimensional Gaussian distribution, classification can be done by Linear Discriminant Analysis[4] method. However, the gene distribution may distributed without any pattern or does not depend on any parameter. This inspires us to find a way simulating the distribution of a variable based on the samples only.
+$\newline$
+\indent Our new method first uses the dimension reduction method: selecting a combination of features meet the independence assumption. One way is computing the sample correlations between features and then searching for a sequence of uncorrelated features. An alternative way is performing a basis transformation. After the selection step, kernel density estimation is applied to simulate the univariate density function. We also propose a new approach to choose the optimized bandwidth through the comparison between results from KDE and bootstrap method.
+$\newline$
+\indent Here is a brief overview of the sections to follow. Section 2 introduces and describes the whole framework of the proposed method. Section 3 evaluates the method on a real genomic data. Section 4 discusses some concerns and limitations about the method.
+$\newline$
+$\newline$
+\large
+$\textbf{2. Methods}$
+\normalsize
+$\newline$
+$\newline$
+\indent In this part, a nonparametric Baysian classifier for continous features is described.  The order of sections follow the actual operations.
+$\newline$
+$\newline$
+$\textbf{2.1 Data Pre-processing}$
+$\newline$
+\indent First of all, the gene expression data can be normalized[5] according to personal demands and perferences. Observations with missing values are not recommended to be imputed when sample size is large unless there are few observations because NB performs better when more training samples are given.
+$\newline$
+$\newline$
+$\textbf{2.2 Feature Selection Methods}$
+$\newline$
+\indent One challenge of nonparametric Bayes classification on continous data is that training a conditional density is unfeasible. The unique way to estimate the joint density is multiplying a series of estimated univariate probability density training from the given information. Therefore, a nonparametric Bayes classifier requires that the presense of a particular feature in a class is uncorrelated to the presence of any other feature. (more explanation and proof in next section) For genomic data, the existence of correlation between genes may greatly reduce the classification accuracy. This section discusses some feasible methods to eliminate the correlation between features or select a subset of features which are mutually independent. 
+$\newline$
+$\newline$
+$\textbf{2.2.1 Correlation-based feature selection}$
+$\newline$
+\indent Pearson’s Correlation is a measure of how strong the linear association is between two variables. Pearson' R ranges from -1 to 1 and its absoluate value indicates the strength of the association. The absolute value of coefficient is expected to be larger for a pair of highly correlated features. Pearson's sample correlation coefficient estimates the population correlation.[6] Pearson's sample correlation of a paired data ($x_{i}$,$y_{i}$), i = 1,...,n can be computed by the formula below:
+
+\begin{equation} \label{eq:1}
+r_{x,y} = \frac{\sum_{i=1}^{n}({x_{i}-\bar{x}})(y_{i}-\bar{y})}{\sqrt{\sum_{i=1}^{n}({x_{i}-\bar{x}})^2}\sqrt{\sum_{i=1}^{n}({y_{i}-\bar{y}})^2}}
+\end{equation}
+
+For a genomic data with more than two features, a correlation matrix can be generated and each entry represents a pairwise correlation. A set of mutually independent features can be selected based on the values in the correlation matrix. A workable selection algorithm is shown in the flow diagram (Figure 1):
+```{r echo=FALSE, fig.align='center'，fig.height = 4, fig.cap = "An Algorithm for Correlation-based Selection", dev='png'}
+DiagrammeR::grViz("digraph flowchart {
+      node [fontname = Helvetica, shape = rectangle]        
+      tab1 [label = '@@1']
+      tab2 [label = '@@2']
+      tab3 [label = '@@3']
+      tab4 [label = '@@4']
+      tab5 [label = '@@5']
+
+      tab1 -> tab2 -> tab3 -> tab4 -> tab5;
+      }
+
+      [1]: 'Step 1: Randomly select and mark a feature(gene) from all features and set a threshold for correlation (e.g. 0.1)'
+      [2]: 'Step 2: Calculate all the pairwise correlation between the selected feature and other features'
+      [3]: 'Step 3: Remove features which give a absolute value of correlation greater than the threshold from the feature set'
+      [4]: 'Step 4: Mark the feature resulting with the smallest coefficient'
+      [5]: 'Step 5: Repeat Step2 to Step4 until all the pairwise correlation are greater than the threshold for the remaining features or there is no more feature'
+      ")
+```
+$\newline$
+$\textbf{2.2.2 Principal Component}$
+$\newline$
+\indent An alternative method is performing a change of basis. Principal Component Analysis[7] is a technique to project a multidimensional data to a lower dimension space with minimizing information loss. The transformed new basis are proved to be uncorrelated. For a n $<<$ k case, PCA is a useful tool to seek a small number of uncorrelated features but still explaning most of the data variability. The first principal component is the one explaining the most variance and it is defined as ($X$ is the feature matrix):
+$$ Maximize\ \ w_{1}X^TXw_{1}^T\ \ \ \ \
+subject\ to:\ w_{1}^Tw_{1} = 1 $$
+And the second principal component can be found by the same process:
+$$ Maximize\ \ w_{2}X^TXw_{2}^T\ \ \ \ \ 
+subject\ to:\ w_{2}^Tw_{2} = 1\ and\ w_{1}^Tw_{2} = 0 $$
+It turns out that the principal components are generated from the eigenvectors of $X^TX$ (covaraince matrix). The first principal component is the generated from the eigenvector with the largest eigenvalue.
+$\newline$
+$\newline$
+$\textbf{2.3 Nonparametric Bayes Classifier}$
+$\newline$
+\indent We now derive a nonparametric Bayes classifer used for a multi-class classification problem. The classifier's decision is based on the posterior probability of each class given the feature values. The predicted class should be the one with highest posterior probability. Now suppose there is a complete gene expression data with k independent continous features after the feature selection process and n independent samples is represented by the following matrix:
+$$
+X = 
+\begin{pmatrix}
+x_{1,1} & ... & x_{1,k}\\
+\vdots & \ddots & \vdots \\
+x_{n,1} & ...& x_{n,k}
+\end{pmatrix},\ \ Y = (y_{1},...y_{n})^T
+$$
+The class variable is a class label with m classes.(e.g. disease status) According to Bayes' Theorem, the probability that given a new observation $x_{n+1}$ = ($x_{n+1,1}$,$x_{n+1,2}$,...$x_{n+1,k}$) belongs to class $j$ is equivalent to:   
+```{r include = FALSE}
+
+kernel_density <- function(x, v, h){
+  # v is the dataset in vector form
+  # h is the bandwidth
+  fhat = 0
+  for (j in 1:length(v)){
+    fhat = fhat + as.numeric(dnorm(x, mean = v[j], sd = h))
+  }
+  density <- fhat/length(v)
+  density
+}
+
+measure_probability <- function(v, h, xmin, xmax){
+  phat = 0
+  for (j in 1:length(v)){
+    phat = phat + as.numeric(pnorm(xmax, mean = v[j], sd = h) - 
+                               pnorm(xmin, mean = v[j], sd = h))
+  }
+  phat = phat/length(v)
+  phat
+}
+  
+estimate_probability <- function(v, xmin, xmax, n){
+  pboot = 0
+  for (i in 1:n){
+    vboot <- sample(v, length(v), replace = TRUE)
+    pboot = pboot + sum(xmin <= vboot & vboot <= xmax)/length(v)
+  }
+  pboot = pboot/n
+  pboot
+}
+
+bandwidth_selection <- function(v){
+  v1 <- sample(v, size = round(length(v)/2))
+  v2 <- v[!v%in%v1]
+  scott <- 1.06*sd(v1)*length(v1)^-0.2
+  silver <- 0.9*min(sd(v1),IQR(v1)/1.35)*length(v1)^-0.2
+  knots <- c(runif(1, min(v2), mean(v2)), runif(1, mean(v2), max(v2)), Inf)
+  # knots <- sort(knots)
+  # print(knots)
+  scotterror <- 0
+  silerror <- 0
+  l <- -Inf
+  for (i in 1:length(knots)){
+    probboot <- estimate_probability(v2, l, knots[i], 1000)
+    scotterror = scotterror + abs(measure_probability(v1, scott, l, knots[i]) - probboot)
+    silerror = silerror + abs(measure_probability(v1, silver, l, knots[i]) - probboot)
+    l <- knots[i]
+  } 
+  if(scotterror <= silerror){
+    return(1.06*sd(v)*length(v)^-0.2)
+  }
+  else{
+    return(0.9*min(sd(v),IQR(v)/1.35)*length(v)^-0.2)
+  }
+}
+
+joint_density <- function(w, m){
+  p <- 1
+  for (i in 1:ncol(m)){
+    h <- bandwidth_selection(m[,i])
+    p <- p*as.numeric(kernel_density(w[i], m[,i], h))
+  }
+  p
+}
+
+get_posterior_prob <- function(X.train, X.test, y.train){
+  posterior_prob <- data.frame()
+  pin <- sum(y.train == "Normal")/length(y.train)
+  pic <- sum(y.train == "Crohn's Disease")/length(y.train)
+  piu <- sum(y.train == "Ulcerative Colitis")/length(y.train)
+  for (i in 1:nrow(X.test)){
+    pn <- joint_density(X.test[i,],X.train[which(y.train == "Normal"),])*pin
+    pc <- joint_density(X.test[i,],X.train[which(y.train == "Crohn's Disease"),])*pic
+    pu <- joint_density(X.test[i,],X.train[which(y.train == "Ulcerative Colitis"),])*piu
+    px <- pn + pc + pu
+    pnx <- pn/px
+    pcx <- pc/px
+    pux <- pu/px
+    posterior_prob <- rbind(posterior_prob, c(pnx,pcx,pux))
+    colnames(posterior_prob) <- c("p(n|x)", "p(c|x)", "p(u|x)")
+  }
+  posterior_prob
+}
+```
+
+
+\small
+\begin{equation}
+\begin{aligned}
+P(Y = j|X = x_{n+1}) & = \frac{{f_{X_{1},X_{2},...X_{k}|Y = j}}(x_{n+1}){\pi_{j}}}{\sum_{c=1}^{m}f_{X_{1},X_{2},...X_{k}|Y = c}(x_{n+1}){\pi_{c}}}\\
+              &= \frac{\prod_{i=1}^{k}{f_{X_{i}|Y=j}}(X_{i} = x_{n+1,i}){\pi_{j}}}{\sum_{c=1}^{m}{\prod_{i=1}^{k}{f_{X_{i}|Y=c}}(X_{i} = x_{n+1,i}){\pi_{c}}}}
+\end{aligned}
+\end{equation}
+\normalsize
+(proof of (2) in APPENDIX) where ${\hat\pi_{j}} = \sum_{i=1}^{n}1(y_{i} = j)/n$ can be used to estimate $\pi_{j}$[8]. To estimate ${f_{X_{i}|Y=j}}$, by the fact that probability density function is the derivative of cumulative density function and empirical distribution estimates the true underlying distribution[9], 
+\begin{equation}
+\hat{f}_{X_{i}|{Y=j}}(X_{i} = x_{n+1,i}) = \frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(x_{n+1,i} - h\leq x_{r,i} \leq x_{n+1,i} + h)1(y_{r} = j)
+\end{equation}
+for some small h. (proof of (3) in APPENDIX) Therefore, our predicted class of a new observation $x_{n+1}$ is the one with maximum probability:
+\small
+\begin{equation}
+\hat{class}(x_{n+1})  = \underset{j\in\{1,...,m\}}{\mathrm{argmax}}{\hat\pi_{j}}\prod_{i=1}^{k}({\frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(x_{n+1,i} - h\leq x_{r,i} \leq x_{n+1,i} + h)1(y_{r} = j)})
+\end{equation}
+\normalsize
+$\newline$
+$\newline$
+$\textbf{2.4 Kernel and Bandwidth Selection}$
+$\newline$
+$\newline$
+$smoothness\ and\ kernel\ density\ estimation$
+$\newline$
+Recall from (3), the equation can be expressed as:
+\begin{equation}
+{\frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(x_{n+1,i} - h\leq x_{r,i} \leq x_{n+1,i} + h)1(y_{r} = j)} = \frac{1}{n\hat\pi_{j}h}\sum_{r=1}^{n}K(\frac{x_{n+1,i} - x_{r,i}}{h})1(y_{r} = j)
+\end{equation}
+where $K(\frac{x_{n+1,i} - x_{r,i}}{h})$ ~ $Unif(-1,1)$ if we assumes all data points are having equal weight.(Proof of (5) in APPENDIX) To better depict a distribution with smooth curve(s), closer points should have larger weights than further points, uniform kernel is replaced by a normal kernel.[10] (i.e. $K(\frac{x_{n+1,i} - x_{r,i}}{h})$ ~ $N(0,1)$) 
+$\newline$
+$\newline$
+$bandwidth\ selection$
+$\newline$
+Two proposed bandwidths[11] for a normal kernel are:
+$\newline$
+\begin{center}
+Scott's bandwidth[12]: $h_{1} = 1.06n^{-0.2}\hat\sigma$
+$\newline$
+Silversman's bandwidth[13]: $h_{2} = 0.9min(\hat\sigma,IQR/1.35)n^{-0.2}$
+\end{center}
+$\newline$
+Since genomic data has a large number of features with different distributions. Therefore, there can be a more optimized selection method than choosing the same bandwidth for all features during the KDE step. We introduce an algorithm that selects the bandwidth with the better performance (a 'smart' bandwidth) from the proposed ones for each feature. Performance is measured by a loss function. Split the variable domain into several intervals. The expected setting of loss function is the sum of the absolute values of difference between the probability obtained by KDE with selected bandwidth and the actual probability in each interval. Since the actual distribution is unknown, we can estimate the partial probability by boostrap method.[14] The specific 'smart' bandwidth selection procedures are shown as follows:
+$\newline$
+$\newline$
+Step 1: Partition the variable domain into N disjoint intervals (e.g. $\cup^{N}_{i=1}I_i = (-\infty,\infty)\ and\ I_j\cap\ I_i = \varnothing,\ \forall\ i,j$), each interval covers the region where the data points is distributed. Split the training data $X_{k}$ (suppose this is the data for kth feature) into two parts with equal or similar size: $X_{k,1}, X_{k,2}$.
+$\newline$
+Step 2: Start with the first interval, use the normal kernel to estimate the probability that $x_{n+1,k}$ falls within the interval based on the data $X_{k,1}$ when bandwidth is equal to $h_{1}$ and $h_{2}$ respectively. The results are denoted as $\hat p_{1,h_{1}}$ and $\hat p_{1,h_{2}}$.
+$\newline$
+Step 3: Draw the number of samples equal to $X_{k,2}$ from $X_{k,2}$ with replacement. Calculate the proportion of samples falls within the interval. Repeat this step B times (e.g. 1000) and average the results as $\hat p_{1,boot}$.
+$\newline$
+Step 4: Repeat Step 2 and Step 3 until all the intervals are processed. The smart bandwidth $h^*_{k}$ for the kth feature, is the one minimizing the loss equation:
+\begin{equation}
+h^*_{k}  = \underset{h\in\{h_{1},h_{2}\}}{\mathrm{argmin}}\sum_{i=1}^{N}\mid\hat p_{i,boot}\ -\ \hat p_{i,h}\mid
+\end{equation}
+Finally, our final nonparametric Bayes classifier can be reexpressed as 
+\begin{equation}
+\hat{class}(x_{n+1})  = \underset{j\in\{1,...,m\}}{\mathrm{argmax}}\ {\hat\pi_{j}}\prod_{i=1}^{k}({\frac{1}{n\hat\pi_{j}h^*_{i}}\sum_{r=1}^{n}K(\frac{x_{n+1,i} - x_{r,i}}{h^*_{i}})1(y_{r} = j)})
+\end{equation}
+$\newline$
+\large
+$\textbf{3. Application and Results}$
+\normalsize
+$\newline$
+$\newline$
+\indent To demonstrate the performance of nonparametric Bayes classfication technique on real genomic data, we evaluated the algorithm on an inflammatory bowel disease dataset. The dataset contains 126 individuals with their disease status and features. (i.e. gene expressions) The evalution method is training an nonparametric Bayes classifier from training dataset in order to predict the patient's disease status. 
+$\newline$
+$\newline$
+$\textbf{3.1 Data Manipulation}$
+$\newline$
+\indent The feature dataset is a collection of expression levels of 309 probesets/genes from the 126 individuals. We obtained the data from a publically available download website at Statistical Society of Canada. (https://ssc.ca/en/meeting/annual/2017/case-study-2) Class label is the disease status with three different categories. 41 out of 126 samples are in healthy status. The rest of them are inflammatory bowel disease patients, 59 of which are having an Crohn's disease and the remaining 26 are Ulcerative Colitis patients. Two-thirds of the observations are being used for training purposes. Dataset is divided into three subgroups according to their disease status. A stratified sampling method is applied and the overall training samples consists of 2/3 of members from each subgroup. 
+```{r ,include = FALSE}
+data <- read.csv("ssc_case_study_2_inflammatory_bowel_disease.csv")
+data <- as.data.frame(t(data))
+colname <- data[1,]
+colname[1,1] <- 'Group'
+colname[1,2] <- 'Age'
+colname[1,3] <- 'Ethnicity'
+colname[1,4] <- 'Sex'
+data <- data[-c(1,2),]
+cols <- c()
+for (i in 1:ncol(colname)){
+  cols[i] <- as.character(colname[1,i])
+}
+colnames(data) <- cols
+rownames(data) <- 1:nrow(data)
+for (i in 5:ncol(data)){
+  data[,i] <- as.numeric(as.character(data[,i]))
+}
+X <- scale(data[,-c(1:4)])
+data[91,1] <- "Ulcerative Colitis"
+data[,1] <- as.factor(as.character(data[,1]))
+y <- data[,1]
+
+```
+```{r include = FALSE}
+set.seed(123)
+normal.id <- sample(which(y=="Normal"), size = round(2/3*sum(y == "Normal")))
+Crohn.id <- sample(which(y=="Crohn's Disease"), 
+                   size = round(2/3*sum(y == "Crohn's Disease")))
+ulcerative.id <- sample(which(y=="Ulcerative Colitis"), 
+                        size = round(2/3*sum(y == "Ulcerative Colitis")))
+train.id <- c(normal.id, Crohn.id, ulcerative.id)
+# X.train <- X[train.id,]; X.test <- X[-train.id,]
+y.train <- y[train.id]; y.test <- y[-train.id]
+```
+$\newline$
+$\newline$
+$\textbf{3.2 Feature Selection Results}$
+$\newline$
+\indent The objective of feature selection process is reducing the correlation between features to conform the method's assumption.
+$\newline$
+$\newline$
+*Correlation-based Selection Result*
+$\newline$
+\indent Heatmap helps to visulize the sample correlation between each pair of variables. (See Section 2.2 for the specific formula) The direction of association (i.e. the sign of correlation coefficient) is not in the consideration, only the strength of assocation. Color changes from white to red as the strength of association increases. The diagonal blocks are grey because the relation between a variable and itself is not meaningful. It can be shown that the data after processing feature selection reduces the internal correlation significantly.
+$\newline$
+```{r echo = FALSE, fig.height = 4, fig.width=3, fig.asp=0.5}
+
+mycol <- c("white", "yellow", "red")
+cormat <- round(abs(cor(X)),2)
+diag(cormat) <- NA
+melted_cormat <- melt(cormat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile() + scale_fill_gradientn(limits = c(0,1),colours = mycol) +
+  ggtitle("Pairwise Correlation before Feature Selection") +
+  theme(plot.title = element_text(size = 8),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y =element_blank(),
+        axis.text.y =element_blank(),
+        axis.ticks.y=element_blank())
+
+cor.X <- cor(X)
+th <- 0.1
+
+cor_selection <- function(X, th){
+  i <- sample(1:ncol(X), 1)
+  feature <- c(colnames(X)[i])
+  while (sum(abs(X[,i]) < th) >= 1){
+    new_feature <- colnames(X)[which.min(abs(X[,i]))]
+    feature <- c(feature, new_feature)
+    if (sum(abs(X[,i]) < th) == 1){
+      break
+    }
+    if (sum(abs(X[,i]) < th) > 1){
+      X <- X[which(abs(X[,i]) < th),which(abs(X[,i]) < th)]
+      i <- which(colnames(X) == new_feature)
+    }
+  }
+  feature
+}
+
+set.seed(123)
+res <- cor_selection(cor.X, th)
+X2 <- X[, colnames(X) %in% res]
+cormat <- round(abs(cor(X2)),2)
+diag(cormat) <- NA
+melted_cormat <- melt(cormat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile() + scale_fill_gradientn(limits = c(0,1),colours = mycol) +
+  ggtitle("Pairwise Correlation after Feature Selection") +
+  theme(plot.title = element_text(size = 8),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y =element_blank(),
+        axis.text.y =element_blank(),
+        axis.ticks.y=element_blank())
+```
+$\newline$
+$\newline$
+*Principal Component Analysis*
+$\newline$
+\indent We finally selected the first 40 principal components (sorted by their eigenvalues) which have explained 80% of the total data varibility. After generating the heatmap, the transformed features are perfectly uncorrelated as expected. 
+
+```{r echo=FALSE,fig.height = 2.5, fig.width=3}
+pr.matrix <- prcomp(X,retx=T)
+pr.var <- pr.matrix$sdev^2
+pve <- pr.var/sum(pr.var)
+plot(cumsum(pve), xlab="Principal Component", 
+     ylab="Cumulative Variance Proportion", ylim=c(0,1) ,
+     type="l", cex.lab=0.5, cex.axis=0.5)
+
+pr.matrix.x <- pr.matrix$x[,1:40]
+cormat <- round(abs(cor(pr.matrix.x)),2)
+diag(cormat) <- NA
+melted_cormat <- melt(cormat)
+ggplot(data = melted_cormat, aes(x=Var1, y=Var2, fill=value)) +
+  geom_tile() + scale_fill_gradientn(limits = c(0,1),colours = mycol) +
+  ggtitle("Pairwise Correlation after Transformation") +
+  theme(plot.title = element_text(size = 8),
+        axis.title.x=element_blank(),
+        axis.text.x=element_blank(),
+        axis.ticks.x=element_blank(),
+        axis.title.y =element_blank(),
+        axis.text.y =element_blank(),
+        axis.ticks.y=element_blank())
+```
+$\newline$
+$\textbf{3.3 Classification Evalutaion}$
+$\newline$
+\indent We define the classification accuracy measure to be the proportion of test samples correctly classified:
+\begin{equation}
+\begin{aligned}
+classification\ accuracy\ =\ \frac{\sum_{i=1}^{n}1(class_{predicted} = class_{actual})}{n}
+\end{aligned}
+\end{equation}
+$\newline$
+*Prediction results from nonparametric Bayes classifier using PC features*
+$\newline$
+\indent The first 40 principal components obtained in section 3.2 are utilized to train the density function for each pc. Simulation results of the first principal component are shown in the figures below. PC1 samples for each disease status are shown in the histograms. Figure 2 are the estimated densities learned from the training samples. 
+```{r echo = FALSE}
+y.train <- relevel(y.train, ref = "Normal")
+y.test <- relevel(y.test,ref = "Normal")
+pr.matrix.x.train <- pr.matrix.x[train.id,]
+pr.matrix.x.test <- pr.matrix.x[-train.id,]
+result <- get_posterior_prob(pr.matrix.x.train, pr.matrix.x.test, y.train)
+
+predict_class <- c()
+for (i in 1:nrow(result)){
+  if (as.numeric(which.max(result[i,])) == 1){
+    predict_class[i] <- "Normal"
+  }
+  if (as.numeric(which.max(result[i,])) == 2){
+    predict_class[i] <- "Crohn's Disease"
+  }
+  if (as.numeric(which.max(result[i,])) == 3){
+    predict_class[i] <- "Ulcerative Colitis"
+  }
+}
+bayes.pr.result <- cbind(result, predict_class)
+
+table(bayes.pr.result$predict_class, y.test)
+```
+$\newline$
+```{r echo = FALSE,fig.height = 3, fig.width=2.3}
+hist(pr.matrix.x.train[which(y.train == "Normal"),1], xlim = c(-11,26), col = "green", breaks = seq(-11,26,2),
+     xlab = "PC1",cex.main=0.5, main = "PC1 for healthy individuals",cex.lab = 0.5, cex.axis = 0.5)
+hist(pr.matrix.x.train[which(y.train == "Ulcerative Colitis"),1], xlim = c(-11,26), col = "red", breaks = seq(-11,26,2),
+     xlab = "PC1", main = "PC1 for UC patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+hist(pr.matrix.x.train[which(y.train == "Crohn's Disease"),1], xlim = c(-11,27), col = "blue", breaks = seq(-11,27,2),
+     xlab = "PC1", main = "PC1 for CD patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+```
+
+```{r echo = FALSE,fig.cap = "estimated density function of PC1", fig.height=3, fig.width=4, fig.align='center'}
+samplen <- pr.matrix.x.train[which(y.train == "Normal"),1]
+sampleu <- pr.matrix.x.train[which(y.train == "Ulcerative Colitis"),1]
+samplec <- pr.matrix.x.train[which(y.train == "Crohn's Disease"),1]
+seed <- seq(-11,26,0.01)
+kden <- c()
+kdeu <- c()
+kdec <- c()
+for (i in 1:length(seed)){
+  hu <- 1.06*sd(sampleu)*length(sampleu)^-0.2
+  hc <- 1.06*sd(samplec)*length(samplec)^-0.2
+  hn <- 1.06*sd(samplen)*length(samplen)^-0.2
+  kdeu[i] <- kernel_density(seed[i], sampleu, hu)
+  kden[i] <- kernel_density(seed[i], samplen, hn)
+  kdec[i] <- kernel_density(seed[i], samplec, hc)
+}
+plot(x = seed, y = kden, col = "green", xlim = c(-11,26), ylim = c(0, 0.13), type = "l", xlab = "", ylab = "", cex.lab = 0.4, cex.axis = 0.5)
+par(new = TRUE)
+plot(x = seed, y = kdec, col = "blue",xlim = c(-11,26), ylim = c(0, 0.13), type = "l", xlab = "", ylab = "", cex.lab = 0.4, cex.axis = 0.5)
+par(new = TRUE)
+plot(x = seed, y = kdeu, col = "red", xlim = c(-11,26), ylim = c(0, 0.13), type = "l", xlab = "PC1", ylab = "estimated density" ,cex.lab = 0.4, cex.axis = 0.5)
+legend("topright",legend=c("Healthy", "Crohn","Ulcerative Colitis"),
+       col=c("green", "blue", "red"), lty=1, cex=0.5)
+```
+Nonparametric NB classifier makes prediction based on the features of test samples. For this split, the prediction results are shown in table 1:
+\begin{center}
+\begin{tabular}{|l|l|ccc|}
+\hline
+Table 1 & & \multicolumn{3}{|c|}{Actual Status} \\
+\hline
+ & & Normal & Crohn's Disease & Ulcerative Colitis \\
+\hline
+& Normal & 14 & 4 & 2 \\
+Predicted & Crohn's Disease & 0 & 13 & 2 \\
+Status & Ulcerative Colitis & 0 & 3 & 5 \\
+\hline
+\end{tabular}
+\end{center}
+Prediction Accuracy = (14+13+5)/43 = 0.744
+$\newline$
+$\newline$
+*Prediction results using features selected from Correlation-based algorithm*
+$\newline$
+\indent In this split, seven features (probeset ID:200779_at, 206072_at, 206336_at, 206485_at, 207257_at, 209664_x_at, 210171_s_at) are selected in Section 3.2. Figure 3 shows the estimated density of 206336_at and figure 4 shows the estimated density of 206072_at.
+```{r echo = FALSE}
+x2.train <- X2[train.id,]
+x2.test <- X2[-train.id,]
+result2 <- get_posterior_prob(x2.train, x2.test, y.train)
+
+predict_class <- c()
+for (i in 1:nrow(result2)){
+  if (as.numeric(which.max(result2[i,])) == 1){
+    predict_class[i] <- "Normal"
+  }
+  if (as.numeric(which.max(result2[i,])) == 2){
+    predict_class[i] <- "Crohn's Disease"
+  }
+  if (as.numeric(which.max(result2[i,])) == 3){
+    predict_class[i] <- "Ulcerative Colitis"
+  }
+}
+bayes.x2.result <- cbind(result2, predict_class)
+
+table(bayes.x2.result$predict_class, y.test)
+
+```
+$\newline$
+```{r echo = FALSE,fig.height = 2.5, fig.width=2.3}
+hist(x2.train[which(y.train == "Normal"),3], xlim = c(-2,4), col = "green", breaks = seq(-2,4,0.2),
+     xlab = "206336_at", main = "206336_at for healthy individuals",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+hist(x2.train[which(y.train == "Ulcerative Colitis"),3], xlim = c(-2,4), col = "red", breaks = seq(-2,4,0.2),
+     xlab = "206336_at", main = "206336_at for UC patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+hist(x2.train[which(y.train == "Crohn's Disease"),3], xlim = c(-2,7), col = "blue", breaks = seq(-2,7,0.2),
+     xlab = "206336_at", main = "206336_at for CD patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+```
+$\newline$
+```{r echo = FALSE,fig.cap = "estimated density of 206336", fig.height=3, fig.width=4, fig.align='center'}
+samplen <- x2.train[which(y.train == "Normal"),3]
+sampleu <- x2.train[which(y.train == "Ulcerative Colitis"),3]
+samplec <- x2.train[which(y.train == "Crohn's Disease"),3]
+seed <- seq(-2,6,0.01)
+kden <- c()
+kdeu <- c()
+kdec <- c()
+for (i in 1:length(seed)){
+  hu <- 1.06*sd(sampleu)*length(sampleu)^-0.2
+  hc <- 1.06*sd(samplec)*length(samplec)^-0.2
+  hn <- 1.06*sd(samplen)*length(samplen)^-0.2
+  kdeu[i] <- kernel_density(seed[i], sampleu, hu)
+  kden[i] <- kernel_density(seed[i], samplen, hn)
+  kdec[i] <- kernel_density(seed[i], samplec, hc)
+}
+plot(x = seed, y = kden, col = "green", xlim = c(-2,6), ylim = c(0, 0.9), type = "l", xlab = "", ylab = "", cex.lab = 0.3, cex.axis = 0.3)
+par(new = TRUE)
+plot(x = seed, y = kdec, col = "blue",xlim = c(-2,6), ylim = c(0, 0.9), type = "l", xlab = "", ylab = "", cex.lab = 0.3, cex.axis = 0.3)
+par(new = TRUE)
+plot(x = seed, y = kdeu, col = "red", xlim = c(-2,6), ylim = c(0, 0.9), type = "l", xlab = "206336_at", ylab = "estimated density", cex.lab = 0.3, cex.axis = 0.3)
+legend("topright",legend=c("Healthy", "Crohn","Ulcerative Colitis"),
+       col=c("green", "blue", "red"), lty=1, cex=0.5)
+```
+$\newline$
+```{r echo = FALSE,fig.height = 3, fig.width=2.3}
+hist(x2.train[which(y.train == "Normal"),2], xlim = c(-2,4), col = "green", breaks = seq(-2,4,0.2),
+     xlab = "206072_at", main = "206072_at for healthy individuals",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+hist(x2.train[which(y.train == "Ulcerative Colitis"),2], xlim = c(-2,4), col = "red", breaks = seq(-2,4,0.2),
+     xlab = "206072_at", main = "206072_at for UC patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+hist(x2.train[which(y.train == "Crohn's Disease"),2], xlim = c(-2,6), col = "blue", breaks = seq(-2,6,0.2),
+     xlab = "206072_at", main = "206072_at for CD patients",cex.main=0.5, cex.lab = 0.5, cex.axis = 0.5)
+```
+$\newline$
+```{r echo = FALSE,fig.cap = "estimated density of 206072", fig.height=3, fig.width=4, fig.align='center'}
+samplen <- x2.train[which(y.train == "Normal"),2]
+sampleu <- x2.train[which(y.train == "Ulcerative Colitis"),2]
+samplec <- x2.train[which(y.train == "Crohn's Disease"),2]
+seed <- seq(-2,4,0.01)
+kden <- c()
+kdeu <- c()
+kdec <- c()
+for (i in 1:length(seed)){
+  hu <- 1.06*sd(sampleu)*length(sampleu)^-0.2
+  hc <- 1.06*sd(samplec)*length(samplec)^-0.2
+  hn <- 1.06*sd(samplen)*length(samplen)^-0.2
+  kdeu[i] <- kernel_density(seed[i], sampleu, hu)
+  kden[i] <- kernel_density(seed[i], samplen, hn)
+  kdec[i] <- kernel_density(seed[i], samplec, hc)
+}
+plot(x = seed, y = kden, col = "green", xlim = c(-2,4), ylim = c(0, 0.9), type = "l", xlab = "", ylab = "",cex.lab = 0.3, cex.axis = 0.3)
+par(new = TRUE)
+plot(x = seed, y = kdec, col = "blue",xlim = c(-2,4), ylim = c(0, 0.9), type = "l", xlab = "", ylab = "",cex.lab = 0.3, cex.axis = 0.3)
+par(new = TRUE)
+plot(x = seed, y = kdeu, col = "red", xlim = c(-2,4), ylim = c(0, 0.9), type = "l", xlab = "206072_at", ylab = "estimated density",cex.lab = 0.3, cex.axis = 0.3 )
+legend("topright",legend=c("Healthy", "Crohn","Ulcerative Colitis"),
+       col=c("green", "blue", "red"), lty=1, cex = 0.5)
+```
+$\newline$
+Prediction result in this split:
+\begin{center}
+\begin{tabular}{|l|l|ccc|}
+\hline
+Table 2 & & \multicolumn{3}{|c|}{Actual} \\
+\hline
+ & & Normal & Crohn's Disease & Ulcerative Colitis \\
+\hline
+& Normal & 6 & 6 & 2 \\
+Predicted & Crohn's Disease & 6 & 11 & 4 \\
+& Ulcerative Colitis & 2 & 3 & 3 \\
+\hline
+\end{tabular}
+\end{center}
+Prediction Accuracy = (6+11+3)/43 = 0.4418 
+$\newline$
+As shown in the figures, the density function generated by nonparametric NB methodology looks very similar to the real distribution in both shape and density. In terms of prediction accuracy, pc performs much better than correlated-based method. (but still greater than the random probability when there are three classes, 33%) Exactly, it is true that the difference between UC and CD in many genes are not that obvious.
+$\newline$
+$\newline$
+$\textbf{3.4 Comparing Methods}$
+$\newline$
+\indent Our reference method is a multinomial regression method. Since the proportional odds assumption can not be justified, we choose the baseline category logit model.[15] Our baseline category is normal status.
+Structure of multinomial logit models: 
+\begin{equation}
+log(\frac{\pi_{c}}{\pi_{n}}) = \alpha_{1}\ + \beta_{1}^Tx\ and\  
+log(\frac{\pi_{u}}{\pi_{n}}) = \alpha_{2}\ + \beta_{2}^Tx
+\end{equation}
+where x is a k-length feature vector and $\beta$ is a k-length coefficient, predicted status is the one with maximum estimated probability. (i.e.$\underset{j=n, c, u}{\mathrm{argmax}}\ \hat\pi_{j}$) We apply both regression model and NB classifier to train from the same training samples and make prediction, and repeat 1000 times. The dataset is splitted in a different way in each iteration. The average accuracy is shown in the table below:
+\begin{center}
+\centering
+\begin{tabular}{|l|l|l|}
+\hline
+Method & Feature Selection Method & Classification Accuracy \\
+\hline
+nonparametric Bayes & Principal component & 0.670930 \\
+nonparametric Bayes& Correlation-based & 0.497674 \\
+multinomial regression & Principal component & 0.651163 \\
+multinomial regression & Correltaion-based & 0.503488 \\
+\hline
+\end{tabular}
+\end{center}
+Nonparametric Bayes classification still maintains the advantage of the traditional NB. As long as the features are mutually unassociated, the prediction accuracy from nonparametric Bayes would be very high, even higher than regression models. Nevertheless, nonparametric Bayes looks very sensitive to feature correlation. Recall that features selected from the correlated-based selection are not perfectly uncorrelated but having corrlation lower than the threshold. In contrast, the regression method is more flexible especially when there is a multicolliearity issue. The regression model resolves in the way that one of the correlated variables' coefficient shrinks to 0 which doesn't affect the calcuated probability.
+
+```{r , echo = FALSE}
+model <- multinom(y.train ~ . , data = as.data.frame(pr.matrix.x.train))
+res <- summary(model)
+coef <- res$coefficients
+coef
+bc.pr.result <- predict(model,as.data.frame(pr.matrix.x.test))
+table(bc.pr.result,y.test)
+```
+```{r , echo = FALSE}
+model <- multinom(y.train ~ . , data = as.data.frame(x2.train))
+res <- summary(model)
+coef <- res$coefficients
+coef
+bc.x2.result <- predict(model,as.data.frame(x2.test))
+table(bc.x2.result,y.test)
+```
+```{r , echo = FALSE}
+determine_predict_class <- function(df){
+  predict_class <- c()
+  for (i in 1:nrow(df)){
+    if (as.numeric(which.max(df[i,])) == 1){
+      predict_class[i] <- "Normal"
+    }
+    if (as.numeric(which.max(df[i,])) == 2){
+      predict_class[i] <- "Crohn's Disease"
+    }
+    if (as.numeric(which.max(df[i,])) == 3){
+      predict_class[i] <- "Ulcerative Colitis"
+    }
+  }
+  predict_class
+}
+calculate_accuracy <- function(result, label){
+  accuracy = sum(result == label)/length(result)
+  accuracy
+}
+```
+
+
+
+$\newline$
+$\textbf{IV. Discussion}$
+$\newline$
+*An optimized correlated-based feature selection method*
+$\newline$
+\indent In section 3.3, results show that the feature set obtained by correlated based selection algorithm is not very suitable for Bayes classification technique due to a relative low prediction accuracy. One conjecture to solve this problem is the value of threshold should be smaller. In our analysis, we set the value of threshold as high as 0.1 which is not a small value. On the other hand, only 7 features are selected at this point. A smaller threshold value is likely to trigger a less number of features so that the key features may be excluded. Constructing a better searching algorithm is also a proposed solution to this problem, such as finding multiple qualified feature combinations but only choosing the combination with the most number of features.
+$\newline$
+$\newline$
+*Rationality of the testing method - prior distribution*
+$\newline$
+\indent In section 3.4, even though nonparametric NB demonstrates a more robust and accurate prediction than regression models on this datatset. However, these are all limited to one premise: prior distribution of training set must be similar to the populational prior distribution. NB classifier relies heavily on prior distribution! When the prior probability of one class is high, NB tends to predict that class. Consequently, it is more recommended to use nonparametric Bayes for predicting a small number of observations. Note that the prior distribution of the training samples might be inconsistent with the predicting samples.
+
+$\newline$
+$\newline$
+\newpage
+$\newline$
+$\textbf{REFERENCES}$
+$\newline$
+$\newline$
+[1] Qianfan Wu, Adel Boueiz, Alican Bozkurt, Arya Masoomi, Allan Wang, Dawn L DeMeo, Scott T Weiss and Weiliang Qiu, Deep Learning Methods for Predicting Disease Status Using Genomic Data, *J Biom Biostat*, 9(5): 417, 2018. $\newline$
+[2] Nicholas Stylianides Eleni Kontou, Bayes Theorem and its recent applications, *Leicester Undergraduate Mathematical Journal*, Vol 2, 2020. $\newline$
+[3] J. Rennie, L. Shih, J. Teevan, and D. Karger, Tackling the Poor Assumptions of Naive Bayes Text Classifiers, *AAAI Press*, 20:616-623, 2003 $\newline$
+[4] Tao Li, Shenghuo Zhu and Mitsunori Ogihara, Using discriminant analysis for multi-class classification: an experimental investigation, *Knowledge and Information Systems*, 10: pages453–472, 2006$\newline$
+[5] Xueyan Liu, Nan Li, Sheng Liu, Jun Wang, Ning Zhang, Xubin Zheng, Kwong-Sak Leung, and Lixin Cheng, Normalization Methods for the Analysis of Unbalanced Transcriptome Data, *Front BIoeng Biotechnol*, 7:358, 2019$\newline$
+[6] Donald W.Zimmerman, Bruno D.Zumbo and Richard H. WIlliams, Bias in Estimation and Hypothesis Testing of Correlation, *Psicologica*, 24:133-158, 2003$\newline$
+[7] Lu, Yijuan, Cohen, Ira, Zhou, Xiang Sean, Tian and Qi, Feature selection using principal feature analysis, *ACM Multimedia 2007*, 15:301-304, 2007$\newline$
+[8] Pierre Duchesne, Estimation of a Proportion with Survey Data, *Journal of Statistics Education, Vol.11:3*, 2003$\newline$
+[9] M.S. Waterman and D.E. Whiteman, Estimation of probability densities by empirical density functions, *INT.J.MATH.EDUC.SCI.TECHNOL.*, 9(2): 127-137, 1978$\newline$
+[10] M.C.Jones, The performance of kernel density functions in kernel distribution function estimation, *Statistics & Probability Letters*, 9(2): 129-132, 1990$\newline$
+[11] Mils-Bastian Heidenrich and Stefan Sperlich, Bandwidth Selection in Kernel Density Estimation, *AStA Advances in Statisticl Analysis*, 97(4): 403-433, 2013 $\newline$
+[12] Daniel J.Henderson, Christopher F.Parmeter, Normal reference bandwidths for the general order, multivariate kernel density derivative estimator, *Statistics & Probability Letters*, 82(12): 2198-2205, 2012
+$\newline$
+[13] Shean-Tsong Chiu, Bandwidth Selection for Kernel Density Estimation, *The Annals of Statistics*, 19(4): 1883-1905, 1991$\newline$
+[14] Schuermann, Til; Hanson, Samuel Gregory, Estimating probabilities of default, *Staff Report, No.190, Federal Reserve Bank of New York*, 2004$\newline$
+[15] Courtney Coughenour, Alexander Paz, Hanns de la Fuente-Mella, Ashok Singh, Multinomial logistic regression to estimate and predict perceptions of bicycle and transportation infrastructure in a sprawling metropolitan area, *Journal of Public Health*, 38(4): 401-408, 2015$\newline$
+$\newline$
+\newpage
+$\newline$
+$\textbf{APPENDIX}$
+$\newline$
+$\newline$
+PROOF of (2):
+\begin{equation}
+\begin{aligned}
+P(Y = j|X = x_{n+1}) & = \frac{{f_{X_{1},X_{2},...X_{k}|Y = j}}(x_{n+1}){\pi_{j}}}{\sum_{c=1}^{m}f_{X_{1},X_{2},...X_{k}|Y = c}(x_{n+1}){\pi_{c}}}\\
+              & = \frac{{f_{X_{1}|X_{2}=x_{n+1,2} ,...X_{k}= x_{n+1,k},Y=j}}(X_{1} = x_{n+1,1})...{f_{X_{k}|Y=j}}(X_{k} = x_{n+1,k}){\pi_{j}}}{\sum_{c=1}^{m}{f_{X_{1}|X_{2}=x_{n+1,2} ,...X_{k}= x_{n+1,k},Y=c}}(X_{1} = x_{n+1,1})...{f_{X_{k}|Y=c}}(X_{k} = x_{n+1,k}){\pi_{c}}}\\
+              under\ the\ assumption\ of\ independence,
+              & = \frac{{f_{X_{1}|Y = j}}(X_{1} = x_{n+1,1}){f_{X_{2}|Y = j}}(X_{2} = x_{n+1,2})...{f_{X_{k}|Y = j}}(X_{k} = x_{n+1,k}){\pi_{j}}}{\sum_{c=1}^{m}{f_{X_{1}|Y = c}}(X_{1} = x_{n+1,1}){f_{X_{2}|Y = c}}(X_{2} = x_{n+1,2})...{f_{X_{k}|Y = c}}(X_{k} = x_{n+1,k}){\pi_{c}}}\\
+              &= \frac{\prod_{i=1}^{k}{f_{X_{i}|Y=j}}(X_{i} = x_{n+1,i}){\pi_{j}}}{\sum_{c=1}^{m}{\prod_{i=1}^{k}{f_{X_{i}|Y=c}}(X_{i} = x_{n+1,i}){\pi_{c}}}}
+\end{aligned}
+\end{equation}
+$\newline$
+$\newline$
+PROOF of (3):
+\begin{equation}
+{f_{X_{i}|Y=j}}(X_{i} = x_{n+1,i}) = F_{X_{i}|Y=j}^{'}(X_{i} = x_{n+1,i}) = \lim_{h \to 0^+}\frac{F_{X_{i}|Y=j}(x_{n+1,i} + h)-F_{X_{i}|Y=j}(x_{n+1,i} - h)}{2h}
+\end{equation}
+$F_{X_{i}|Y=j}$ can be estimated by empirical distribution. $\hat{F}_{X_{i}|Y=j}(X_{i} = x_{n+1,i}) = \frac{1}{n_{j}}\sum_{r=1}^{n}1(x_{r,i}\leq x_{n+1,i})1(y_{r} = j)$, where $n_{j} = n\hat\pi_{j}$. After plugging in,
+\begin{equation}
+\hat{f}_{X_{i}|{Y=j}}(X_{i} = x_{n+1,i}) = \frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(x_{n+1,i} - h\leq x_{r,i} \leq x_{n+1,i} + h)1(y_{r} = j),\ for\ some\ h
+\end{equation}
+$\newline$
+$\newline$
+PROOF of (5):
+
+$$
+\begin{aligned}
+{\frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(x_{n+1,i} - h\leq x_{r,i} \leq x_{n+1,i} + h)1(y_{r} = j)} & = {\frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(- h\leq x_{r,i} - x_{n+1,i} \leq h)1(y_{r} = j)}\\
+& = {\frac{1}{2n\hat\pi_{j}h}\sum_{r=1}^{n}1(- 1\leq (x_{r,i} - x_{n+1,i})/h \leq 1)1(y_{r} = j)}\\
+& = {\frac{1}{n\hat\pi_{j}h}\sum_{r=1}^{n}1/2(- 1\leq (x_{r,i} - x_{n+1,i})/h \leq 1)1(y_{r} = j)}\\
+      & = \frac{1}{n\hat\pi_{j}h}\sum_{r=1}^{n}K(\frac{x_{n+1,i} - x_{r,i}}{h})1(y_{r} = j)\  \\& ,\ where\ K(\frac{x_{n+1,i} - x_{r,i}}{h})\ follows\  Unif(-1,1)\
+\end{aligned}
+$$
